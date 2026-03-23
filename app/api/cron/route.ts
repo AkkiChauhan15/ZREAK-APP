@@ -8,17 +8,15 @@ const supabaseAdmin = createClient(
 );
 
 export async function GET(request: Request) {
-  // 1. Security Check: Only Vercel can run this file
   const authHeader = request.headers.get('authorization');
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized intruder detected.' }, { status: 401 });
   }
 
-  const todayStr = new Date().toISOString().split('T')[0]; // Gets today in YYYY-MM-DD format (UTC)
+  const todayStr = new Date().toISOString().split('T')[0]; 
   let syncResults = { github: 0, leetcode: 0, errors: 0 };
 
   try {
-    // 2. Fetch all streaks that have auto-sync turned on
     const { data: streaks } = await supabaseAdmin
       .from('streaks')
       .select('id, current_count, last_check_in, user_id, auto_sync_provider, profiles!inner(github_username, leetcode_username)')
@@ -28,36 +26,34 @@ export async function GET(request: Request) {
       return NextResponse.json({ message: 'No automated streaks to process today.' });
     }
 
-    // 3. Loop through every streak and interrogate the external APIs
     for (const streak of streaks) {
       try {
         let successToday = false;
 
+        // 🔥 THE FIX: Safely extract the profile to make TypeScript happy
+        const profile: any = Array.isArray(streak.profiles) ? streak.profiles[0] : streak.profiles;
+
         // ==========================================
         // 🐙 GITHUB FETCH LOGIC
         // ==========================================
-        if (streak.auto_sync_provider === 'github' && streak.profiles.github_username) {
-          const githubUser = streak.profiles.github_username;
+        if (streak.auto_sync_provider === 'github' && profile?.github_username) {
+          const githubUser = profile.github_username;
           
-          // Next.js caches fetches by default. We add 'no-store' to ensure fresh data.
           const res = await fetch(`https://api.github.com/users/${githubUser}/events/public`, { cache: 'no-store' });
           if (!res.ok) throw new Error(`GitHub API error for ${githubUser}`);
           
           const events = await res.json();
-          
-          // Check if they made a "PushEvent" (committed code) today
           successToday = events.some((event: any) => {
             return event.type === 'PushEvent' && event.created_at.startsWith(todayStr);
           });
         }
 
         // ==========================================
-        // 💻 LEETCODE FETCH LOGIC (GraphQL)
+        // 💻 LEETCODE FETCH LOGIC
         // ==========================================
-        if (streak.auto_sync_provider === 'leetcode' && streak.profiles.leetcode_username) {
-          const lcUser = streak.profiles.leetcode_username;
+        if (streak.auto_sync_provider === 'leetcode' && profile?.leetcode_username) {
+          const lcUser = profile.leetcode_username;
           
-          // LeetCode's secret GraphQL query for accepted submissions
           const query = `
             query recentAcSubmissions($username: String!, $limit: Int!) {
               recentAcSubmissionList(username: $username, limit: $limit) {
@@ -78,7 +74,6 @@ export async function GET(request: Request) {
           const data = await res.json();
           const submissions = data.data?.recentAcSubmissionList || [];
 
-          // LeetCode timestamps are in Unix Seconds. We convert them to a normal Date string to compare.
           successToday = submissions.some((sub: any) => {
             const subDate = new Date(parseInt(sub.timestamp) * 1000).toISOString().split('T')[0];
             return subDate === todayStr;
@@ -88,19 +83,14 @@ export async function GET(request: Request) {
         // ==========================================
         // 💾 DATABASE UPDATE LOGIC
         // ==========================================
-        // If they did the work today AND we haven't already given them credit for it...
         if (successToday && streak.last_check_in !== todayStr) {
-          
-          // 1. Log it in the check_ins table (For the heatmap & Live Feed)
           await supabaseAdmin.from('check_ins').insert({
             streak_id: streak.id,
             user_id: streak.user_id,
             date_checked: todayStr
           });
 
-          // 2. Update the main streak counter
           let newCount = streak.current_count;
-          // If the streak was previously broken, start at 1. Otherwise, increment.
           if (streak.last_check_in && new Date(todayStr).getTime() - new Date(streak.last_check_in).getTime() > 86400000) {
             newCount = 1; 
           } else {
@@ -113,7 +103,6 @@ export async function GET(request: Request) {
             status: 'active'
           }).eq('id', streak.id);
 
-          // Tally the successful updates for our logs
           if (streak.auto_sync_provider === 'github') syncResults.github++;
           if (streak.auto_sync_provider === 'leetcode') syncResults.leetcode++;
         }
@@ -121,7 +110,6 @@ export async function GET(request: Request) {
       } catch (err) {
         console.error(`Error syncing streak ${streak.id}:`, err);
         syncResults.errors++;
-        // We use a try/catch inside the loop so one broken username doesn't crash everyone else's sync!
       }
     }
 
