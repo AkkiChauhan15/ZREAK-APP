@@ -70,12 +70,3 @@ If the user failed to do the work, the Next.js frontend logic automatically mark
 📜 License
 Distributed under the MIT License.
 
-
-### How to add this to your project:
-1. In the root of your project folder (right next to `package.json`), create a file named `README.md`.
-2. Paste the text above into it.
-3. Run these commands to push it to your repository:
-   ```bash
-   git add README.md
-   git commit -m "Added comprehensive README"
-   git push
