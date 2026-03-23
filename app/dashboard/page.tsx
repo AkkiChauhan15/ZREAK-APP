@@ -1,7 +1,15 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
-import Link from 'next/link'
+
+// 🛠️ The Timezone Fixer: Forces YYYY-MM-DD in your Local Time
+function getLocalYYYYMMDD() {
+  const d = new Date()
+  const year = d.getFullYear()
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
 
 function getDaysDiff(date1: string | null, date2: string) {
   if (!date1) return null
@@ -18,7 +26,6 @@ export default function Dashboard() {
   const [userName, setUserName] = useState('Warrior')
   const [streaks, setStreaks] = useState<any[]>([])
   
-  // New States for Auto-Sync Feature
   const [streakMode, setStreakMode] = useState<'manual' | 'github' | 'leetcode'>('manual')
   const [linkedAccounts, setLinkedAccounts] = useState({ github: false, leetcode: false })
   const [message, setMessage] = useState('')
@@ -27,7 +34,7 @@ export default function Dashboard() {
   const [newStreakIcon, setNewStreakIcon] = useState('🏋️')
   const [heatmap, setHeatmap] = useState<number[]>(Array(28).fill(0))
 
-  const todayStr = new Date().toISOString().split('T')[0] 
+  const todayStr = getLocalYYYYMMDD() // 🔥 Uses local time now!
 
   useEffect(() => {
     fetchData()
@@ -38,23 +45,18 @@ export default function Dashboard() {
     if (!user) return
     setUser(user)
 
-    // 1. Get Username AND check for linked accounts
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('username, github_username, leetcode_username')
-      .eq('id', user.id)
-      .single()
-      
+    const { data: profile } = await supabase.from('profiles').select('username, github_username, leetcode_username').eq('id', user.id).single()
     if (profile) {
       setUserName(profile.username || 'Warrior')
-      setLinkedAccounts({
-        github: !!profile.github_username,
-        leetcode: !!profile.leetcode_username
-      })
+      setLinkedAccounts({ github: !!profile.github_username, leetcode: !!profile.leetcode_username })
     }
 
-    // 2. Load Streaks & Evaluate Page-Load Status
-    const { data: myStreaks } = await supabase.from('streaks').select('*').eq('user_id', user.id).order('created_at', { ascending: true })
+    // 🔥 Filter OUT abandoned streaks so they disappear from the dashboard
+    const { data: myStreaks } = await supabase.from('streaks')
+      .select('*')
+      .eq('user_id', user.id)
+      .neq('status', 'abandoned') 
+      .order('created_at', { ascending: true })
     
     if (myStreaks) {
       const updatedStreaks = await Promise.all(myStreaks.map(async (streak) => {
@@ -68,11 +70,10 @@ export default function Dashboard() {
       setStreaks(updatedStreaks)
     }
 
-    // 3. Generate Heatmap
     const { data: checkIns } = await supabase.from('check_ins').select('date_checked').eq('user_id', user.id)
     if (checkIns) {
       const mapData = Array(28).fill(0)
-      const todayDate = new Date()
+      const todayDate = new Date(todayStr) // Align heatmap with local time
       todayDate.setHours(0,0,0,0)
       
       checkIns.forEach(ci => {
@@ -86,15 +87,12 @@ export default function Dashboard() {
     }
   }
 
-  // --- ACTIONS ---
-
   const handleAddStreak = async () => {
     setMessage('')
     let finalName = newStreakName
     let finalIcon = newStreakIcon
     let autoProvider = null
 
-    // 🧠 The Auto-Sync Logic Check
     if (streakMode === 'github') {
       if (!linkedAccounts.github) return setMessage('❌ Link your GitHub in Settings first!')
       finalName = 'GitHub Commits'
@@ -110,23 +108,17 @@ export default function Dashboard() {
     }
 
     const { data, error } = await supabase.from('streaks').insert({
-      user_id: user.id,
-      streak_name: finalName,
-      icon: finalIcon,
-      current_count: 0,
-      status: 'active',
-      auto_sync_provider: autoProvider // Saves to the DB so the Cron job knows to look for it!
+      user_id: user.id, streak_name: finalName, icon: finalIcon, current_count: 0, status: 'active', auto_sync_provider: autoProvider 
     }).select().single()
 
     if (!error && data) {
       setStreaks([...streaks, data])
       setNewStreakName('')
-      setStreakMode('manual') // Reset UI
+      setStreakMode('manual') 
     }
   }
 
   const handleCheckIn = async (streak: any) => {
-    // Prevent manual check-ins for auto-sync streaks just in case
     if (streak.auto_sync_provider) return 
 
     const diffDays = getDaysDiff(streak.last_check_in, todayStr)
@@ -141,19 +133,33 @@ export default function Dashboard() {
       streak_id: streak.id, user_id: user.id, date_checked: todayStr
     })
 
-    if (!checkInError) {
-      await supabase.from('streaks').update({
-        current_count: newCount, last_check_in: todayStr, status: 'active'
-      }).eq('id', streak.id)
-      fetchData() 
+    // 🔥 Gracefully handle duplicate check-ins so the UI doesn't freeze
+    if (checkInError && checkInError.code !== '23505') {
+      alert(`Database Error: ${checkInError.message}`)
+      return
     }
+
+    await supabase.from('streaks').update({
+      current_count: newCount, last_check_in: todayStr, status: 'active'
+    }).eq('id', streak.id)
+    fetchData() 
+  }
+
+  // 🔥 NEW: Give Up / Delete Streak
+  const handleAbandon = async (streakId: string, name: string) => {
+    if (!confirm(`Are you sure you want to give up on "${name}"? This will be broadcasted to your friends.`)) return;
+    
+    await supabase.from('streaks')
+      .update({ status: 'abandoned' }) 
+      .eq('id', streakId)
+    
+    fetchData() // Refresh UI to hide it
   }
 
   return (
     <div className="min-h-screen pb-20 pt-8 px-4 font-sans text-zinc-900">
       <div className="mx-auto max-w-lg space-y-8">
         
-        {/* Header Section */}
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-extrabold tracking-tight">Stay hard, {userName}!</h1>
@@ -167,31 +173,13 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* Upgraded Add New Streak Section */}
         <section className="rounded-3xl border-2 border-zinc-200 bg-white p-2 shadow-sm border-b-[6px]">
-          {/* Mode Selector */}
           <div className="flex gap-2 mb-2 p-2 bg-zinc-50 rounded-2xl">
-            <button 
-              onClick={() => setStreakMode('manual')}
-              className={`flex-1 rounded-xl py-2 text-sm font-bold transition-all ${streakMode === 'manual' ? 'bg-white shadow-sm border-2 border-zinc-200' : 'text-zinc-500 hover:bg-zinc-100'}`}
-            >
-              ✍️ Manual
-            </button>
-            <button 
-              onClick={() => setStreakMode('github')}
-              className={`flex-1 rounded-xl py-2 text-sm font-bold transition-all ${streakMode === 'github' ? 'bg-zinc-900 text-white shadow-sm' : 'text-zinc-500 hover:bg-zinc-100'}`}
-            >
-              🐙 GitHub
-            </button>
-            <button 
-              onClick={() => setStreakMode('leetcode')}
-              className={`flex-1 rounded-xl py-2 text-sm font-bold transition-all ${streakMode === 'leetcode' ? 'bg-yellow-500 text-white shadow-sm' : 'text-zinc-500 hover:bg-zinc-100'}`}
-            >
-              💻 LeetCode
-            </button>
+            <button onClick={() => setStreakMode('manual')} className={`flex-1 rounded-xl py-2 text-sm font-bold transition-all ${streakMode === 'manual' ? 'bg-white shadow-sm border-2 border-zinc-200' : 'text-zinc-500 hover:bg-zinc-100'}`}>✍️ Manual</button>
+            <button onClick={() => setStreakMode('github')} className={`flex-1 rounded-xl py-2 text-sm font-bold transition-all ${streakMode === 'github' ? 'bg-zinc-900 text-white shadow-sm' : 'text-zinc-500 hover:bg-zinc-100'}`}>🐙 GitHub</button>
+            <button onClick={() => setStreakMode('leetcode')} className={`flex-1 rounded-xl py-2 text-sm font-bold transition-all ${streakMode === 'leetcode' ? 'bg-yellow-500 text-white shadow-sm' : 'text-zinc-500 hover:bg-zinc-100'}`}>💻 LeetCode</button>
           </div>
 
-          {/* Dynamic Input based on Mode */}
           <div className="flex gap-2">
             {streakMode === 'manual' ? (
               <>
@@ -209,14 +197,10 @@ export default function Dashboard() {
                 {streakMode === 'github' ? 'Automated GitHub Commits sync' : 'Automated LeetCode sync'}
               </div>
             )}
-            
-            <button onClick={handleAddStreak} className="rounded-xl bg-orange-500 border-b-4 border-orange-600 active:border-b-0 active:translate-y-[4px] px-6 py-3 font-bold text-white transition-all">
-              Add
-            </button>
+            <button onClick={handleAddStreak} className="rounded-xl bg-orange-500 border-b-4 border-orange-600 active:border-b-0 active:translate-y-[4px] px-6 py-3 font-bold text-white transition-all">Add</button>
           </div>
         </section>
 
-        {/* Active Streaks List */}
         <section className="space-y-4">
           <h2 className="text-xl font-bold">Today's Missions</h2>
           
@@ -246,26 +230,33 @@ export default function Dashboard() {
                   </div>
                 </div>
                 
-                {/* Dynamic Button based on Auto vs Manual */}
-                {isAuto ? (
-                   <div className="rounded-xl bg-blue-50 border-2 border-blue-200 px-4 py-2 font-bold text-blue-700 text-sm">
-                     {isDoneToday ? 'Synced ✅' : 'Syncing at midnight ⏳'}
-                   </div>
-                ) : isDoneToday ? (
-                  <button disabled className="rounded-xl bg-green-200 px-4 py-2 font-bold text-green-700 opacity-50">
-                    Done
+                <div className="flex items-center gap-2">
+                  {/* 🔥 The Delete/Give Up Button */}
+                  <button 
+                    onClick={() => handleAbandon(streak.id, streak.streak_name)}
+                    className="flex h-10 w-10 items-center justify-center rounded-xl bg-zinc-100 text-zinc-400 hover:bg-red-100 hover:text-red-600 transition-colors"
+                    title="Give up and remove streak"
+                  >
+                    🗑️
                   </button>
-                ) : (
-                  <button onClick={() => handleCheckIn(streak)} className="rounded-xl border-2 border-orange-500 bg-orange-500 border-b-4 active:border-b-2 active:translate-y-[2px] px-4 py-2 font-bold text-white transition-all hover:bg-orange-400">
-                    Check In
-                  </button>
-                )}
+
+                  {isAuto ? (
+                     <div className="rounded-xl bg-blue-50 border-2 border-blue-200 px-4 py-2 font-bold text-blue-700 text-sm">
+                       {isDoneToday ? 'Synced ✅' : 'Syncing at midnight ⏳'}
+                     </div>
+                  ) : isDoneToday ? (
+                    <button disabled className="rounded-xl bg-green-200 px-4 py-2 font-bold text-green-700 opacity-50">Done</button>
+                  ) : (
+                    <button onClick={() => handleCheckIn(streak)} className="rounded-xl border-2 border-orange-500 bg-orange-500 border-b-4 active:border-b-2 active:translate-y-[2px] px-4 py-2 font-bold text-white transition-all hover:bg-orange-400">
+                      Check In
+                    </button>
+                  )}
+                </div>
               </div>
             )
           })}
         </section>
 
-        {/* Heatmap Section */}
         <section className="rounded-3xl border-2 border-zinc-200 bg-white p-6 shadow-sm border-b-[6px]">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-xl font-bold">Total Intensity</h2>
