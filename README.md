@@ -1,36 +1,81 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 🔥 Zreak: Social Habit Tracker
 
-## Getting Started
+> **Build Habits. Wreck Your Friends.**
 
-First, run the development server:
+Zreak is a social accountability and habit-tracking platform designed to make self-improvement competitive. Track your daily goals, automate your developer streaks, and watch your friends succeed—or publicly shame them when they fail.
 
+![Zreak Dashboard Preview](https://via.placeholder.com/800x400?text=Zreak+Dashboard+Preview) ## ✨ Core Features
+
+### 🛡️ The Dashboard
+* **Multi-Streak System:** Track fitness, reading, coding, and lifestyle habits in one place.
+* **28-Day Heatmaps:** Visualize your intensity and consistency over the last month.
+* **Ruthless Accountability:** Miss a day? Your streak resets to zero, and the squad is notified. Give up on a habit entirely? It gets broadcasted to the feed.
+
+### 🤖 Auto-Sync Integrations
+No manual check-ins required. Zreak connects to external APIs to verify your work automatically every midnight:
+* **🐙 GitHub Auto-Sync:** Verifies daily `PushEvents` (code commits).
+* **💻 LeetCode Auto-Sync:** Verifies daily accepted problem submissions via GraphQL.
+
+### ⚔️ The Social Battlefield
+* **Squad Building:** Search warriors by `@username` and send challenge requests.
+* **Public Profiles:** Inspect your friends' active and broken streaks before accepting their challenges.
+* **Live Motivation & Shame Feed:** A unified timeline showing real-time wins, broken streaks, and abandoned goals from everyone in your squad.
+
+## 🛠️ Tech Stack
+
+* **Frontend:** [Next.js 16](https://nextjs.org/) (App Router, React)
+* **Styling:** [Tailwind CSS](https://tailwindcss.com/)
+* **Backend/Auth:** [Supabase](https://supabase.com/) (PostgreSQL, Row Level Security)
+* **Hosting & Automation:** [Vercel](https://vercel.com/) (Serverless Functions, Cron Jobs)
+
+## 🚀 Getting Started (Local Development)
+
+### 1. Clone the repository
 ```bash
+git clone [https://github.com/yourusername/zreak-app.git](https://github.com/yourusername/zreak-app.git)
+cd zreak-app
+
+2. Install dependencies
+npm install
+
+3. Set up Environment Variables
+
+Create a .env.local file in the root directory and add the following keys:
+
+Code snippet
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key # Required for Cron Jobs
+CRON_SECRET=your_custom_secret_password # Protects the API route
+
+4. Database Setup (Supabase)
+You will need to run the master SQL script in your Supabase SQL Editor to generate the necessary tables (profiles, streaks, check_ins, friendships) and the automated trigger for user creation. (See supabase_schema.sql if included in the repo).
+
+5. Run the development server
+
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+Open http://localhost:3000 with your browser to see the result.
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+⏰ How the Automated Engine Works
+Zreak uses a Vercel Cron Job configured in vercel.json to trigger the /api/cron route every day at 11:50 PM UTC.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+The server securely fetches all streaks marked with auto_sync_provider.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+It hits the GitHub REST API and LeetCode GraphQL API to verify the user's activity for the day.
 
-## Learn More
+If successful, it securely updates the Supabase database using the Service Role Key, logging the check-in and bumping the streak count.
 
-To learn more about Next.js, take a look at the following resources:
+If the user failed to do the work, the Next.js frontend logic automatically marks the streak as "Reset" upon their next login.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+📜 License
+Distributed under the MIT License.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+### How to add this to your project:
+1. In the root of your project folder (right next to `package.json`), create a file named `README.md`.
+2. Paste the text above into it.
+3. Run these commands to push it to your repository:
+   ```bash
+   git add README.md
+   git commit -m "Added comprehensive README"
+   git push
