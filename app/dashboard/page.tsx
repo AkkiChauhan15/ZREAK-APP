@@ -1,22 +1,153 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
+import Link from 'next/link'
+
+function getDaysDiff(date1: string | null, date2: string) {
+  if (!date1) return null
+  const d1 = new Date(date1)
+  d1.setHours(0, 0, 0, 0)
+  const d2 = new Date(date2)
+  d2.setHours(0, 0, 0, 0)
+  const diff = d2.getTime() - d1.getTime()
+  return Math.floor(diff / (1000 * 60 * 60 * 24))
+}
 
 export default function Dashboard() {
+  const [user, setUser] = useState<any>(null)
   const [userName, setUserName] = useState('Warrior')
-  const heatmapData = Array.from({ length: 28 }, () => Math.floor(Math.random() * 4))
+  const [streaks, setStreaks] = useState<any[]>([])
+  
+  // New States for Auto-Sync Feature
+  const [streakMode, setStreakMode] = useState<'manual' | 'github' | 'leetcode'>('manual')
+  const [linkedAccounts, setLinkedAccounts] = useState({ github: false, leetcode: false })
+  const [message, setMessage] = useState('')
+
+  const [newStreakName, setNewStreakName] = useState('')
+  const [newStreakIcon, setNewStreakIcon] = useState('🏋️')
+  const [heatmap, setHeatmap] = useState<number[]>(Array(28).fill(0))
+
+  const todayStr = new Date().toISOString().split('T')[0] 
 
   useEffect(() => {
-    const fetchProfile = async () => {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (user) {
-        // Fetch the username from the profiles table
-        const { data } = await supabase.from('profiles').select('username').eq('id', user.id).single()
-        if (data?.username) setUserName(data.username)
-      }
-    }
-    fetchProfile()
+    fetchData()
   }, [])
+
+  const fetchData = async () => {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+    setUser(user)
+
+    // 1. Get Username AND check for linked accounts
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('username, github_username, leetcode_username')
+      .eq('id', user.id)
+      .single()
+      
+    if (profile) {
+      setUserName(profile.username || 'Warrior')
+      setLinkedAccounts({
+        github: !!profile.github_username,
+        leetcode: !!profile.leetcode_username
+      })
+    }
+
+    // 2. Load Streaks & Evaluate Page-Load Status
+    const { data: myStreaks } = await supabase.from('streaks').select('*').eq('user_id', user.id).order('created_at', { ascending: true })
+    
+    if (myStreaks) {
+      const updatedStreaks = await Promise.all(myStreaks.map(async (streak) => {
+        const diffDays = getDaysDiff(streak.last_check_in, todayStr)
+        if (diffDays !== null && diffDays > 1 && streak.current_count > 0 && streak.status !== 'broken') {
+          await supabase.from('streaks').update({ status: 'broken' }).eq('id', streak.id)
+          return { ...streak, status: 'broken' }
+        }
+        return streak
+      }))
+      setStreaks(updatedStreaks)
+    }
+
+    // 3. Generate Heatmap
+    const { data: checkIns } = await supabase.from('check_ins').select('date_checked').eq('user_id', user.id)
+    if (checkIns) {
+      const mapData = Array(28).fill(0)
+      const todayDate = new Date()
+      todayDate.setHours(0,0,0,0)
+      
+      checkIns.forEach(ci => {
+        const ciDate = new Date(ci.date_checked)
+        ciDate.setHours(0,0,0,0)
+        const diffTime = todayDate.getTime() - ciDate.getTime()
+        const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24))
+        if (diffDays >= 0 && diffDays < 28) mapData[27 - diffDays] += 1
+      })
+      setHeatmap(mapData)
+    }
+  }
+
+  // --- ACTIONS ---
+
+  const handleAddStreak = async () => {
+    setMessage('')
+    let finalName = newStreakName
+    let finalIcon = newStreakIcon
+    let autoProvider = null
+
+    // 🧠 The Auto-Sync Logic Check
+    if (streakMode === 'github') {
+      if (!linkedAccounts.github) return setMessage('❌ Link your GitHub in Settings first!')
+      finalName = 'GitHub Commits'
+      finalIcon = '🐙'
+      autoProvider = 'github'
+    } else if (streakMode === 'leetcode') {
+      if (!linkedAccounts.leetcode) return setMessage('❌ Link your LeetCode in Settings first!')
+      finalName = 'LeetCode Daily'
+      finalIcon = '💻'
+      autoProvider = 'leetcode'
+    } else if (!newStreakName) {
+      return setMessage('❌ Please enter a habit name.')
+    }
+
+    const { data, error } = await supabase.from('streaks').insert({
+      user_id: user.id,
+      streak_name: finalName,
+      icon: finalIcon,
+      current_count: 0,
+      status: 'active',
+      auto_sync_provider: autoProvider // Saves to the DB so the Cron job knows to look for it!
+    }).select().single()
+
+    if (!error && data) {
+      setStreaks([...streaks, data])
+      setNewStreakName('')
+      setStreakMode('manual') // Reset UI
+    }
+  }
+
+  const handleCheckIn = async (streak: any) => {
+    // Prevent manual check-ins for auto-sync streaks just in case
+    if (streak.auto_sync_provider) return 
+
+    const diffDays = getDaysDiff(streak.last_check_in, todayStr)
+    let newCount = streak.current_count
+    
+    if (diffDays === null) newCount = 1
+    else if (diffDays === 0) return
+    else if (diffDays === 1) newCount += 1
+    else newCount = 1
+
+    const { error: checkInError } = await supabase.from('check_ins').insert({
+      streak_id: streak.id, user_id: user.id, date_checked: todayStr
+    })
+
+    if (!checkInError) {
+      await supabase.from('streaks').update({
+        current_count: newCount, last_check_in: todayStr, status: 'active'
+      }).eq('id', streak.id)
+      fetchData() 
+    }
+  }
 
   return (
     <div className="min-h-screen pb-20 pt-8 px-4 font-sans text-zinc-900">
@@ -26,28 +157,127 @@ export default function Dashboard() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-extrabold tracking-tight">Stay hard, {userName}!</h1>
-            <p className="font-medium text-zinc-500">Let's crush today's goals.</p>
-          </div>
-          <div className="flex items-center gap-1 rounded-2xl border-2 border-orange-200 bg-orange-100 px-4 py-2 text-orange-600 font-bold">
-            <span className="text-xl">🔥</span>
-            <span>1,204</span>
+            <p className="font-medium text-zinc-500">Don't let your squad down.</p>
           </div>
         </div>
 
-        {/* --- Keep the rest of your Dashboard UI identical below this line --- */}
+        {message && (
+          <div className="rounded-xl bg-red-50 border-2 border-red-200 p-3 text-sm font-bold text-red-800 text-center">
+            {message}
+          </div>
+        )}
+
+        {/* Upgraded Add New Streak Section */}
+        <section className="rounded-3xl border-2 border-zinc-200 bg-white p-2 shadow-sm border-b-[6px]">
+          {/* Mode Selector */}
+          <div className="flex gap-2 mb-2 p-2 bg-zinc-50 rounded-2xl">
+            <button 
+              onClick={() => setStreakMode('manual')}
+              className={`flex-1 rounded-xl py-2 text-sm font-bold transition-all ${streakMode === 'manual' ? 'bg-white shadow-sm border-2 border-zinc-200' : 'text-zinc-500 hover:bg-zinc-100'}`}
+            >
+              ✍️ Manual
+            </button>
+            <button 
+              onClick={() => setStreakMode('github')}
+              className={`flex-1 rounded-xl py-2 text-sm font-bold transition-all ${streakMode === 'github' ? 'bg-zinc-900 text-white shadow-sm' : 'text-zinc-500 hover:bg-zinc-100'}`}
+            >
+              🐙 GitHub
+            </button>
+            <button 
+              onClick={() => setStreakMode('leetcode')}
+              className={`flex-1 rounded-xl py-2 text-sm font-bold transition-all ${streakMode === 'leetcode' ? 'bg-yellow-500 text-white shadow-sm' : 'text-zinc-500 hover:bg-zinc-100'}`}
+            >
+              💻 LeetCode
+            </button>
+          </div>
+
+          {/* Dynamic Input based on Mode */}
+          <div className="flex gap-2">
+            {streakMode === 'manual' ? (
+              <>
+                <select value={newStreakIcon} onChange={(e) => setNewStreakIcon(e.target.value)} className="rounded-xl bg-zinc-100 px-3 text-xl focus:outline-none cursor-pointer">
+                  <option value="🏋️">🏋️</option>
+                  <option value="📚">📚</option>
+                  <option value="💧">💧</option>
+                  <option value="🏃">🏃</option>
+                  <option value="🧘">🧘</option>
+                </select>
+                <input type="text" placeholder="e.g. Gym Session" value={newStreakName} onChange={(e) => setNewStreakName(e.target.value)} className="flex-1 rounded-xl bg-transparent px-2 font-bold focus:outline-none" />
+              </>
+            ) : (
+              <div className="flex-1 flex items-center px-4 rounded-xl bg-zinc-100 text-zinc-500 font-bold text-sm">
+                {streakMode === 'github' ? 'Automated GitHub Commits sync' : 'Automated LeetCode sync'}
+              </div>
+            )}
+            
+            <button onClick={handleAddStreak} className="rounded-xl bg-orange-500 border-b-4 border-orange-600 active:border-b-0 active:translate-y-[4px] px-6 py-3 font-bold text-white transition-all">
+              Add
+            </button>
+          </div>
+        </section>
+
+        {/* Active Streaks List */}
         <section className="space-y-4">
           <h2 className="text-xl font-bold">Today's Missions</h2>
-          <div className="group flex items-center justify-between rounded-3xl border-2 border-zinc-200 bg-white p-5 border-b-[6px] active:border-b-2 active:translate-y-1 transition-all cursor-pointer">
-            <div className="flex items-center gap-4">
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-zinc-100 text-2xl shadow-inner group-hover:bg-orange-100 transition-colors">🏋️</div>
-              <div>
-                <h3 className="font-bold">Gym Session</h3>
-                <p className="text-sm font-medium text-zinc-500">0 / 1 Completed</p>
+          
+          {streaks.length === 0 && (
+             <p className="text-zinc-500 font-medium text-center py-4">No active streaks. Add one above!</p>
+          )}
+
+          {streaks.map((streak) => {
+            const isDoneToday = streak.last_check_in === todayStr
+            const isBroken = streak.status === 'broken'
+            const isBrandNew = !streak.last_check_in || (streak.current_count === 0 && !isBroken)
+            const isAuto = !!streak.auto_sync_provider
+
+            return (
+              <div key={streak.id} className={`group flex items-center justify-between rounded-3xl border-2 p-5 border-b-[6px] transition-all ${isDoneToday ? 'border-green-200 bg-green-50' : isBroken ? 'border-red-200 bg-red-50' : 'border-zinc-200 bg-white'}`}>
+                <div className="flex items-center gap-4">
+                  <div className={`flex h-14 w-14 items-center justify-center rounded-2xl text-2xl shadow-inner ${isDoneToday ? 'bg-green-500 text-white' : isBroken ? 'bg-red-200' : isAuto ? 'bg-blue-100' : 'bg-zinc-100'}`}>
+                    {streak.icon}
+                  </div>
+                  <div>
+                    <h3 className={`font-bold ${isDoneToday ? 'text-green-900' : isBroken ? 'text-red-900' : 'text-zinc-900'}`}>
+                      {streak.streak_name} {isAuto && <span className="text-xs ml-1 bg-blue-100 text-blue-700 px-2 py-1 rounded-full">Auto</span>}
+                    </h3>
+                    <p className={`text-sm font-bold ${isBrandNew ? 'text-zinc-500' : isDoneToday ? 'text-green-700' : isBroken ? 'text-red-600' : 'text-orange-500'}`}>
+                      {isBrandNew ? '🏁 Start your streak' : isBroken ? '⚠️ Streak Reset' : `🔥 ${streak.current_count} Day Streak`}
+                    </p>
+                  </div>
+                </div>
+                
+                {/* Dynamic Button based on Auto vs Manual */}
+                {isAuto ? (
+                   <div className="rounded-xl bg-blue-50 border-2 border-blue-200 px-4 py-2 font-bold text-blue-700 text-sm">
+                     {isDoneToday ? 'Synced ✅' : 'Syncing at midnight ⏳'}
+                   </div>
+                ) : isDoneToday ? (
+                  <button disabled className="rounded-xl bg-green-200 px-4 py-2 font-bold text-green-700 opacity-50">
+                    Done
+                  </button>
+                ) : (
+                  <button onClick={() => handleCheckIn(streak)} className="rounded-xl border-2 border-orange-500 bg-orange-500 border-b-4 active:border-b-2 active:translate-y-[2px] px-4 py-2 font-bold text-white transition-all hover:bg-orange-400">
+                    Check In
+                  </button>
+                )}
               </div>
-            </div>
-            <button className="rounded-xl border-2 border-orange-500 bg-orange-500 border-b-4 active:border-b-2 active:translate-y-[2px] px-4 py-2 font-bold text-white transition-all hover:bg-orange-400">
-              Check In
-            </button>
+            )
+          })}
+        </section>
+
+        {/* Heatmap Section */}
+        <section className="rounded-3xl border-2 border-zinc-200 bg-white p-6 shadow-sm border-b-[6px]">
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-xl font-bold">Total Intensity</h2>
+            <span className="text-sm font-bold text-zinc-400">Last 28 Days</span>
+          </div>
+          <div className="grid grid-cols-7 gap-2">
+            {heatmap.map((intensity, index) => {
+              let bgColor = "bg-zinc-100"
+              if (intensity === 1) bgColor = "bg-orange-200"
+              if (intensity >= 2) bgColor = "bg-orange-500 shadow-sm shadow-orange-500/50"
+              return <div key={index} className={`aspect-square w-full rounded-xl ${bgColor} transition-transform hover:scale-110`} title={`${intensity} activities completed`} />
+            })}
           </div>
         </section>
 

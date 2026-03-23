@@ -18,15 +18,16 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${inter.className} bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-50`}>
-        {/* Top Navigation Bar */}
+     {/* Top Navigation Bar */}
         <nav className="sticky top-0 z-50 w-full border-b-2 border-zinc-200 bg-white/80 backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/80">
           <div className="mx-auto flex max-w-lg items-center justify-between p-4">
             <Link href="/" className="text-xl font-extrabold tracking-tight">
               Zreak<span className="text-orange-500">.</span>
             </Link>
-            <div className="flex gap-4 font-bold">
+            <div className="flex gap-4 font-bold items-center">
               <Link href="/dashboard" className="hover:text-orange-500 transition-colors">Dashboard</Link>
               <Link href="/friends" className="hover:text-orange-500 transition-colors">Friends</Link>
+              <Link href="/settings" className="text-xl hover:scale-110 transition-transform" title="Settings">⚙️</Link>
             </div>
           </div>
         </nav>
