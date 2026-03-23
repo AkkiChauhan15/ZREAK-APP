@@ -2,8 +2,10 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { useRouter } from "next/navigation";
 
 export default function Home() {
+  const router = useRouter();
   const [username, setUsername] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -20,6 +22,15 @@ export default function Home() {
     checkSession();
   }, []);
 
+  // 🟢 The Logout Function
+  const handleLogout = async () => {
+    setLoading(true); // Show skeleton while processing
+    await supabase.auth.signOut();
+    setUsername(null); // Clear the state
+    setLoading(false);
+    router.refresh(); // Tell Next.js to refresh the route data
+  };
+
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-zinc-50 px-4 text-center dark:bg-zinc-950">
       
@@ -35,30 +46,40 @@ export default function Home() {
         </p>
 
         {/* Dynamic Call to Action Buttons */}
-        <div className="mt-8 flex flex-col items-center justify-center gap-4 sm:flex-row h-16">
+        <div className="mt-8 flex flex-col items-center justify-center gap-4 min-h-[5rem]">
           
           {loading ? (
             // Loading State (Pulsing skeleton)
             <div className="h-14 w-64 animate-pulse rounded-2xl bg-zinc-200 dark:bg-zinc-800"></div>
           ) : username ? (
-            // LOGGED IN: Show personalized continue button
-            <>
-              <Link 
-                href="/dashboard" 
-                className="group relative inline-flex h-14 items-center justify-center overflow-hidden rounded-2xl border-2 border-orange-500 bg-orange-500 border-b-4 active:border-b-2 active:translate-y-[2px] px-8 font-bold text-white transition-all hover:bg-orange-400"
+            // LOGGED IN: Show personalized continue button AND Logout
+            <div className="flex flex-col items-center gap-4">
+              <div className="flex flex-col sm:flex-row gap-4">
+                <Link 
+                  href="/dashboard" 
+                  className="group relative inline-flex h-14 items-center justify-center overflow-hidden rounded-2xl border-2 border-orange-500 bg-orange-500 border-b-4 active:border-b-2 active:translate-y-[2px] px-8 font-bold text-white transition-all hover:bg-orange-400"
+                >
+                  Continue as @{username} ⚡️
+                </Link>
+                <Link 
+                  href="/friends" 
+                  className="inline-flex h-14 items-center justify-center rounded-2xl border-2 border-zinc-200 bg-white px-8 font-bold text-zinc-900 transition-all hover:bg-zinc-50 hover:shadow-sm active:translate-y-[2px] active:border-b-2 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-50 dark:hover:bg-zinc-800"
+                >
+                  View Squad
+                </Link>
+              </div>
+              
+              {/* 🟢 The New Logout Button */}
+              <button 
+                onClick={handleLogout}
+                className="text-sm font-bold text-zinc-500 hover:text-red-500 transition-colors"
               >
-                Continue as @{username} ⚡️
-              </Link>
-              <Link 
-                href="/friends" 
-                className="inline-flex h-14 items-center justify-center rounded-2xl border-2 border-zinc-200 bg-white px-8 font-bold text-zinc-900 transition-all hover:bg-zinc-50 hover:shadow-sm active:translate-y-[2px] active:border-b-2 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-50 dark:hover:bg-zinc-800"
-              >
-                View Squad
-              </Link>
-            </>
+                Not @{username}? Log out
+              </button>
+            </div>
           ) : (
             // LOGGED OUT: Show original signup buttons
-            <>
+            <div className="flex flex-col sm:flex-row gap-4">
               <Link 
                 href="/login" 
                 className="group relative inline-flex h-14 items-center justify-center overflow-hidden rounded-2xl border-2 border-orange-500 bg-orange-500 border-b-4 active:border-b-2 active:translate-y-[2px] px-8 font-bold text-white transition-all hover:bg-orange-400"
@@ -71,7 +92,7 @@ export default function Home() {
               >
                 Login
               </Link>
-            </>
+            </div>
           )}
 
         </div>
