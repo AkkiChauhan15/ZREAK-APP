@@ -69,7 +69,8 @@ export default function LoginPage() {
               <input 
                 type="text" 
                 placeholder="akki_123" 
-                className="flex w-full rounded-xl border-2 border-zinc-200 bg-zinc-50 px-3 py-3 font-medium focus:border-orange-500 focus:outline-none"
+                // 🔥 Added text-zinc-900 here
+                className="flex w-full rounded-xl border-2 border-zinc-200 bg-zinc-50 px-3 py-3 font-medium text-zinc-900 focus:border-orange-500 focus:outline-none"
                 onChange={(e) => setUsername(e.target.value)} 
               />
             </div>
@@ -80,7 +81,8 @@ export default function LoginPage() {
             <input 
               type="email" 
               placeholder="warrior@email.com" 
-              className="flex w-full rounded-xl border-2 border-zinc-200 bg-zinc-50 px-3 py-3 font-medium focus:border-orange-500 focus:outline-none"
+              // 🔥 Added text-zinc-900 here
+              className="flex w-full rounded-xl border-2 border-zinc-200 bg-zinc-50 px-3 py-3 font-medium text-zinc-900 focus:border-orange-500 focus:outline-none"
               onChange={(e) => setEmail(e.target.value)} 
             />
           </div>
@@ -90,7 +92,8 @@ export default function LoginPage() {
             <input 
               type="password" 
               placeholder="••••••••" 
-              className="flex w-full rounded-xl border-2 border-zinc-200 bg-zinc-50 px-3 py-3 font-medium focus:border-orange-500 focus:outline-none"
+              // 🔥 Added text-zinc-900 here
+              className="flex w-full rounded-xl border-2 border-zinc-200 bg-zinc-50 px-3 py-3 font-medium text-zinc-900 focus:border-orange-500 focus:outline-none"
               onChange={(e) => setPassword(e.target.value)} 
             />
           </div>
@@ -99,22 +102,3 @@ export default function LoginPage() {
             <button 
               onClick={handleAuth} 
               disabled={loading}
-              className="w-full rounded-xl border-2 border-orange-500 bg-orange-500 border-b-4 active:border-b-2 active:translate-y-[2px] px-6 py-3 font-bold text-white transition-all hover:bg-orange-400 disabled:opacity-50"
-            >
-              {loading ? 'Processing...' : (isSignUp ? 'Create Account' : 'Login')}
-            </button>
-          </div>
-
-          <div className="text-center pt-4">
-            <button 
-              onClick={() => setIsSignUp(!isSignUp)}
-              className="text-sm font-bold text-zinc-500 hover:text-orange-500 transition-colors"
-            >
-              {isSignUp ? "Already have an account? Login" : "Don't have an account? Sign Up"}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
