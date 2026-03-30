@@ -1,10 +1,10 @@
 # 🔥 Zreak: Social Habit Tracker
 
-**Build Habits. Wreck Your Friends.**
+>**Build Habits. Wreck Your Friends.**
 
 Zreak is a social accountability and habit-tracking platform designed to make self-improvement competitive. Track your daily goals, automate your developer streaks, and watch your friends succeed—or publicly shame them when they fail.
 
-![Zreak Dashboard Preview](https://via.placeholder.com/800x400?text=Zreak+Dashboard+Preview) ## ✨ Core Features
+## ✨ Core Features
 
 ### 🛡️ The Dashboard
 * **Multi-Streak System:** Track fitness, reading, coding, and lifestyle habits in one place.
