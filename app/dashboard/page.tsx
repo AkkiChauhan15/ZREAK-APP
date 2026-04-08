@@ -40,52 +40,54 @@ export default function Dashboard() {
     fetchData()
   }, [])
 
-  const fetchData = async () => {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
-    setUser(user)
+   const fetchData = async () => {
+     const { data: { user } } = await supabase.auth.getUser()
+     if (!user) return
+     setUser(user)
 
-    const { data: profile } = await supabase.from('profiles').select('username, github_username, leetcode_username').eq('id', user.id).single()
-    if (profile) {
-      setUserName(profile.username || 'Warrior')
-      setLinkedAccounts({ github: !!profile.github_username, leetcode: !!profile.leetcode_username })
-    }
+     const { data: profile } = await supabase.from('profiles').select('username, github_username, leetcode_username').eq('id', user.id).single()
+     if (profile) {
+       setUserName(profile.username || 'Warrior')
+       setLinkedAccounts({ github: !!profile.github_username, leetcode: !!profile.leetcode_username })
+     }
 
-    // 🔥 Filter OUT abandoned streaks so they disappear from the dashboard
-    const { data: myStreaks } = await supabase.from('streaks')
-      .select('*')
-      .eq('user_id', user.id)
-      .neq('status', 'abandoned') 
-      .order('created_at', { ascending: true })
-    
-    if (myStreaks) {
-      const updatedStreaks = await Promise.all(myStreaks.map(async (streak) => {
-        const diffDays = getDaysDiff(streak.last_check_in, todayStr)
-        if (diffDays !== null && diffDays > 1 && streak.current_count > 0 && streak.status !== 'broken') {
-          await supabase.from('streaks').update({ status: 'broken' }).eq('id', streak.id)
-          return { ...streak, status: 'broken' }
-        }
-        return streak
-      }))
-      setStreaks(updatedStreaks)
-    }
+     // Fetch streaks from API endpoint
+     const res = await fetch('/api/streaks');
+     if (!res.ok) {
+       console.error('Failed to fetch streaks');
+       return;
+     }
+     
+      const { streaks } = await res.json();
+      if (streaks) {
+        const updatedStreaks = await Promise.all(streaks.map(async (streak: any) => {
+          const diffDays = getDaysDiff(streak.last_check_in, todayStr)
+          if (diffDays !== null && diffDays > 1 && streak.current_count > 0 && streak.status !== 'broken') {
+            await supabase.from('streaks').update({ status: 'broken' }).eq('id', streak.id)
+            return { ...streak, status: 'broken' }
+          }
+          return streak
+        }))
+        setStreaks(updatedStreaks)
+      }
 
-    const { data: checkIns } = await supabase.from('check_ins').select('date_checked').eq('user_id', user.id)
-    if (checkIns) {
-      const mapData = Array(28).fill(0)
-      const todayDate = new Date(todayStr) // Align heatmap with local time
-      todayDate.setHours(0,0,0,0)
-      
-      checkIns.forEach(ci => {
-        const ciDate = new Date(ci.date_checked)
-        ciDate.setHours(0,0,0,0)
-        const diffTime = todayDate.getTime() - ciDate.getTime()
-        const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24))
-        if (diffDays >= 0 && diffDays < 28) mapData[27 - diffDays] += 1
-      })
-      setHeatmap(mapData)
-    }
-  }
+     // Fetch check-ins for heatmap
+     const { data: checkIns } = await supabase.from('check_ins').select('date_checked').eq('user_id', user.id)
+     if (checkIns) {
+       const mapData = Array(28).fill(0)
+       const todayDate = new Date(todayStr) // Align heatmap with local time
+       todayDate.setHours(0,0,0,0)
+       
+       checkIns.forEach(ci => {
+         const ciDate = new Date(ci.date_checked)
+         ciDate.setHours(0,0,0,0)
+         const diffTime = todayDate.getTime() - ciDate.getTime()
+         const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24))
+         if (diffDays >= 0 && diffDays < 28) mapData[27 - diffDays] += 1
+       })
+       setHeatmap(mapData)
+     }
+   }
 
   const handleAddStreak = async () => {
     setMessage('')
